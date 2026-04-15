@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "4000:4000"
+    depends_on:
+      - redis
+
+  frontend:
+    build: ./frontend
+    environment:
+      - NEXT_PUBLIC_WS_URL=ws://localhost:4000/ws
+      - NEXT_PUBLIC_API_URL=http://localhost:4000/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
