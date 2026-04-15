@@ -9,7 +9,7 @@ export interface PriceRepository {
 
 export class InMemoryPriceRepo implements PriceRepository {
   private store = new Map<string, PricePoint[]>();
-  constructor(private maxPoints = 10_000) {}
+  constructor(private maxPoints = 10_000) { }
 
   push(symbol: string, price: number) {
     const arr = this.store.get(symbol) ?? [];

@@ -25,7 +25,7 @@ export type StrategySignal = {
 };
 
 export class StrategyService {
-  constructor(private priceService: PriceService) {}
+  constructor(private priceService: PriceService) { }
 
   async evaluate(): Promise<StrategySignal[]> {
     const syms = this.priceService.symbols();

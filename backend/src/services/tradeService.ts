@@ -22,7 +22,7 @@ export class TradeService {
   /** Prevents duplicate close requests for the same pair arriving concurrently */
   private closingPairs = new Set<string>();
 
-  constructor(private mt5Cmds?: MT5CommandService) {}
+  constructor(private mt5Cmds?: MT5CommandService) { }
 
   /** Load persisted trades from Redis. Call once at startup before serving requests. */
   async initialize(): Promise<void> {

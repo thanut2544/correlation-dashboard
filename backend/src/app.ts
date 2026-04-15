@@ -29,7 +29,6 @@ export function createApp(stream: StreamService) {
   const priceSvc = new PriceService(repo);
   const corrSvc = new CorrelationService(priceSvc);
   const stratSvc = new StrategyService(priceSvc);
-
   const mt5Cmds = new MT5CommandService();
   const tradeSvc = new TradeService(mt5Cmds);
 

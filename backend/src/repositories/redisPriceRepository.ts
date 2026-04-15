@@ -10,7 +10,7 @@ type PricePoint = { ts: number; price: number };
  * Uses the shared singleton Redis client to avoid connection proliferation.
  */
 export class RedisPriceRepo implements PriceRepository {
-  constructor(private maxPoints = 10_000) {}
+  constructor(private maxPoints = 10_000) { }
 
   private key(symbol: string) {
     return `${config.redisNamespace}:${symbol}`;

@@ -6,7 +6,7 @@ import classNames from "classnames";
 
 export default function PositionsTable({ trades }: { trades: TradeIntent[] }) {
   const { priceSeries } = useLivePrices();
-  
+
   const activePositions = trades.filter(t => t.action === "open" && t.status === "pending");
 
   if (activePositions.length === 0) return null;

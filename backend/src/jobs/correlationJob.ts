@@ -11,7 +11,7 @@ export function startCorrelationJob(corr: CorrelationService, stream: StreamServ
       console.error("[correlationJob] Error computing correlations:", err);
     }
   };
-  
+
   run();
   return setInterval(run, config.correlationIntervalMs);
 }

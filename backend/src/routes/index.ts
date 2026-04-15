@@ -42,7 +42,6 @@ export const makeRouter = (
   r.get("/price/:symbol/history", price.history);
   r.get("/correlation", corr.all);
   r.get("/strategy", strat.evaluate);
-
   r.post("/trade/open", trade.open);
   r.post("/trade/close", trade.close);
   r.get("/trade", trade.list);
