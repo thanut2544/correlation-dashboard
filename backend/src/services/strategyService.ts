@@ -1,4 +1,5 @@
-import { PriceService } from "./priceService";
+import { CandleService } from "./candleService";
+import { AIContext } from "./aiContextService";
 import { pearson } from "../utils/correlation";
 import { atr, ema, rsi, stddev, zScore } from "../utils/indicators";
 import { config } from "../config";
@@ -22,47 +23,65 @@ export type StrategySignal = {
     priceA: number;
     priceB: number;
   };
+  /** ข้อมูลที่เตรียมไว้สำหรับ AI วิเคราะห์ (ยังไม่ส่ง AI จริง) */
+  aiContext?: AIContext;
 };
 
 export class StrategyService {
-  constructor(private priceService: PriceService) { }
+  constructor(private candleService: CandleService) { }
 
   async evaluate(): Promise<StrategySignal[]> {
-    const syms = this.priceService.symbols();
+    const syms = this.candleService.symbols();
     const signals: StrategySignal[] = [];
     const sessionOk = isAllowedSession();
 
-    // Fetch only the required window once per symbol, not full history
-    const needed = Math.max(config.strategy.corrMidWindow, config.strategy.emaSlow, config.strategy.rsiPeriod + 1, config.strategy.atrPeriod + 1);
-    const histCache = new Map<string, number[]>();
+    // จำนวน candles ที่ต้องการมากที่สุด (ครอบคลุม EMA slow + correlation windows)
+    const needed = Math.max(
+      config.strategy.corrMidWindow,
+      config.strategy.emaSlow,
+      config.strategy.rsiPeriod + 1,
+      config.strategy.atrPeriod + 1
+    );
+
+    // โหลด M15 candle closes ทีเดียวทุก symbol
+    const closeCache = new Map<string, number[]>();
     for (const sym of syms) {
-      const hist = await this.priceService.historyLast(sym, needed);
-      histCache.set(sym, hist.map(p => p.price));
+      const closes = await this.candleService.getCloses(sym, needed);
+      closeCache.set(sym, closes);
     }
 
     for (let i = 0; i < syms.length; i++) {
       for (let j = i + 1; j < syms.length; j++) {
-        const aPrices = histCache.get(syms[i])!;
-        const bPrices = histCache.get(syms[j])!;
-        if (!aPrices.length || !bPrices.length) continue;
+        const a = closeCache.get(syms[i])!;
+        const b = closeCache.get(syms[j])!;
+        if (!a.length || !b.length) continue;
 
-        const len = Math.min(aPrices.length, bPrices.length);
-        const a = aPrices.slice(-len);
-        const b = bPrices.slice(-len);
+        const len = Math.min(a.length, b.length);
+        const aArr = a.slice(-len);
+        const bArr = b.slice(-len);
 
-        // Correlation short vs mid
-        const rShort = pearson(a.slice(-config.strategy.corrShortWindow), b.slice(-config.strategy.corrShortWindow));
-        const rMid = pearson(a.slice(-config.strategy.corrMidWindow), b.slice(-config.strategy.corrMidWindow));
+        // ── Correlation short vs mid (M15 bars) ──────────────────────────────
+        const rShort = pearson(
+          aArr.slice(-config.strategy.corrShortWindow),
+          bArr.slice(-config.strategy.corrShortWindow)
+        );
+        const rMid = pearson(
+          aArr.slice(-config.strategy.corrMidWindow),
+          bArr.slice(-config.strategy.corrMidWindow)
+        );
 
-        // Skip pair if correlation is undefined (insufficient or zero-variance data)
         if (isNaN(rShort) || isNaN(rMid)) continue;
 
-        const rShortSeries = a.slice(-config.strategy.corrShortWindow).map((_, idx) =>
-          pearson(
-            a.slice(-(config.strategy.corrShortWindow + idx)).slice(-config.strategy.corrShortWindow),
-            b.slice(-(config.strategy.corrShortWindow + idx)).slice(-config.strategy.corrShortWindow),
+        // ── Correlation stability (volatility ของ rShort series) ─────────────
+        const rShortSeries = aArr
+          .slice(-config.strategy.corrShortWindow)
+          .map((_, idx) =>
+            pearson(
+              aArr.slice(-(config.strategy.corrShortWindow + idx)).slice(-config.strategy.corrShortWindow),
+              bArr.slice(-(config.strategy.corrShortWindow + idx)).slice(-config.strategy.corrShortWindow)
+            )
           )
-        ).filter(v => !isNaN(v));
+          .filter(v => !isNaN(v));
         const rShortVol = stddev(rShortSeries);
 
         const corrStable =
@@ -70,39 +89,51 @@ export class StrategyService {
           rShortVol < config.strategy.corrStabilityVol &&
           rMid > config.thresholdHigh;
 
-        // Spread & Z-score
-        const spread = a.map((v, idx) => v - b[idx]);
+        // ── Spread & Z-score (M15 candle closes) ─────────────────────────────
+        const spread = aArr.map((v, idx) => v - bArr[idx]);
         const z = zScore(spread.slice(-config.strategy.corrMidWindow));
 
-        // Trend alignment
-        const emaFastA = last(ema(a, config.strategy.emaFast));
-        const emaSlowA = last(ema(a, config.strategy.emaSlow));
-        const emaFastB = last(ema(b, config.strategy.emaFast));
-        const emaSlowB = last(ema(b, config.strategy.emaSlow));
+        // ── Trend alignment (EMA บน M15 candles) ────────────────────────────
+        const emaFastA = last(ema(aArr, config.strategy.emaFast));
+        const emaSlowA = last(ema(aArr, config.strategy.emaSlow));
+        const emaFastB = last(ema(bArr, config.strategy.emaFast));
+        const emaSlowB = last(ema(bArr, config.strategy.emaSlow));
         const aligned =
           (z > 0 && emaFastA > emaSlowA && emaFastB > emaSlowB) ||
           (z < 0 && emaFastA < emaSlowA && emaFastB < emaSlowB);
         const counterTrend = !aligned;
 
-        // Momentum exhaustion
-        const rsiA = rsi(a, config.strategy.rsiPeriod);
-        const rsiB = rsi(b, config.strategy.rsiPeriod);
-        // NaN means insufficient data — treat as not confirmed
+        // ── Momentum exhaustion (RSI บน M15 candles) ─────────────────────────
+        const rsiA = rsi(aArr, config.strategy.rsiPeriod);
+        const rsiB = rsi(bArr, config.strategy.rsiPeriod);
         const rsiAVal = isNaN(rsiA) ? 50 : rsiA;
         const rsiBVal = isNaN(rsiB) ? 50 : rsiB;
         const momentumOk =
           (z > 0 && (rsiAVal > 65 || rsiBVal < 35)) ||
           (z < 0 && (rsiAVal < 35 || rsiBVal > 65));
 
-        // Volatility regime
+        // ── Volatility regime (ATR บน M15 spread) ────────────────────────────
         const atrSpread = atr(spread, config.strategy.atrPeriod);
-        const regimeOk = atrSpread >= config.strategy.atrMin && atrSpread <= config.strategy.atrMax;
+        const regimeOk =
+          atrSpread >= config.strategy.atrMin &&
+          atrSpread <= config.strategy.atrMax;
 
-        // Qualification
-        const zThreshold = counterTrend ? config.strategy.zEntryStrict : config.strategy.zEntry;
-        const qualifies = corrStable && Math.abs(z) > zThreshold && momentumOk && regimeOk && sessionOk;
-        const direction: StrategySignal["direction"] =
-          qualifies ? (z > 0 ? "short-spread" : "long-spread") : "none";
+        // ── Final qualification ───────────────────────────────────────────────
+        // counter-trend ต้องการ Z สูงกว่า (เสี่ยงมากกว่า)
+        const zThreshold = counterTrend
+          ? config.strategy.zEntryStrict
+          : config.strategy.zEntry;
+        const qualifies =
+          corrStable &&
+          Math.abs(z) > zThreshold &&
+          momentumOk &&
+          regimeOk &&
+          sessionOk;
+        const direction: StrategySignal["direction"] = qualifies
+          ? z > 0
+            ? "short-spread"
+            : "long-spread"
+          : "none";
 
         const reasons: string[] = [];
         if (!corrStable) reasons.push("Correlation unstable or too low");
@@ -128,8 +159,8 @@ export class StrategyService {
             rsiA: rsiAVal,
             rsiB: rsiBVal,
             atrSpread,
-            priceA: last(a),
-            priceB: last(b),
+            priceA: last(aArr),
+            priceB: last(bArr),
           },
         });
       }
@@ -143,17 +174,26 @@ function last(arr: number[]): number {
 }
 
 /**
- * DST-aware session check using the Intl API so that London/NY hour boundaries
- * remain correct throughout daylight-saving transitions.
+ * DST-aware session check
+ * London: 08:00–17:00 Europe/London
+ * New York: 08:00–17:00 America/New_York
  */
 function isAllowedSession(): boolean {
   const now = new Date();
 
   const londonHour = Number(
-    new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Europe/London" }).format(now)
+    new Intl.DateTimeFormat("en-GB", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "Europe/London",
+    }).format(now)
   );
   const nyHour = Number(
-    new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "America/New_York" }).format(now)
+    new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "America/New_York",
+    }).format(now)
   );
 
   const london = londonHour >= 8 && londonHour < 17;

@@ -7,11 +7,15 @@ export type TradeIntent = {
   pair: [string, string];
   action: "open" | "close";
   direction?: "long-spread" | "short-spread";
+  volume?: number;
   entryPrices?: [number, number];
   exitPrices?: [number, number];
   finalPnL?: number;
   ts: number;
   status: "pending" | "filled" | "cancelled" | "closed";
+  mt5Status?: "pending" | "confirmed" | "failed";
+  mt5Retcode?: number;
+  mt5Comment?: string;
 };
 
 export function useTrades() {

@@ -1,4 +1,4 @@
-import { PriceService } from "./priceService";
+import { CandleService } from "./candleService";
 import { pearson } from "../utils/correlation";
 import { config } from "../config";
 
@@ -10,22 +10,33 @@ export type CorrelationResult = {
 };
 
 export class CorrelationService {
-  constructor(private priceService: PriceService) {}
+  constructor(private candleService: CandleService) {}
+
   async compute(): Promise<CorrelationResult[]> {
-    const syms = this.priceService.symbols();
+    const syms = this.candleService.symbols();
     const results: CorrelationResult[] = [];
+
     for (let i = 0; i < syms.length; i++) {
       for (let j = i + 1; j < syms.length; j++) {
-        const aHist = (await this.priceService.history(syms[i])).slice(-config.correlationWindow);
-        const bHist = (await this.priceService.history(syms[j])).slice(-config.correlationWindow);
-        const aVals = aHist.map(p => p.price);
-        const bVals = bHist.map(p => p.price);
-        const value = pearson(aVals, bVals);
+        // ใช้ M15 candle closes แทน raw ticks
+        const aCloses = await this.candleService.getCloses(
+          syms[i],
+          config.strategy.corrMidWindow
+        );
+        const bCloses = await this.candleService.getCloses(
+          syms[j],
+          config.strategy.corrMidWindow
+        );
+
+        const len = Math.min(aCloses.length, bCloses.length);
+        const value = pearson(aCloses.slice(-len), bCloses.slice(-len));
+
         results.push({
           pair: [syms[i], syms[j]],
           value,
           ts: Date.now(),
-          thresholdBreached: value < config.thresholdLow || value > config.thresholdHigh,
+          thresholdBreached:
+            value < config.thresholdLow || value > config.thresholdHigh,
         });
       }
     }

@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { CorrelationResult } from "./correlationService";
 import { StrategySignal } from "./strategyService";
+import { DailyStats } from "./dailyRiskManager";
 
 type Client = WebSocket;
 
@@ -18,4 +19,5 @@ export class StreamService {
   sendPrices(snapshot: any) { this.broadcast("price:update", snapshot); }
   sendStrategy(signals: StrategySignal[]) { this.broadcast("strategy:update", signals); }
   sendTrades(trades: any[]) { this.broadcast("trades:update", trades); }
+  sendDailyRisk(stats: DailyStats) { this.broadcast("daily:risk", stats); }
 }

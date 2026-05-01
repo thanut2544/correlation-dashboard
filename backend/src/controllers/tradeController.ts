@@ -58,6 +58,31 @@ export const makeTradeController = (svc: TradeService, priceSvc: PriceService) =
     }
   },
 
+  closeAll: async (_: Request, res: Response) => {
+    try {
+      const openTrades = svc.list().filter(
+        t => t.action === "open" && t.status === "pending"
+      );
+      if (openTrades.length === 0) {
+        return res.json({ closed: 0 });
+      }
+      const results = await Promise.allSettled(
+        openTrades.map(async t => {
+          const pA = await priceSvc.latest(t.pair[0]);
+          const pB = await priceSvc.latest(t.pair[1]);
+          const prices: [number, number] = [pA?.price ?? 0, pB?.price ?? 0];
+          return svc.close(t.pair, prices);
+        })
+      );
+      const closed = results.filter(r => r.status === "fulfilled").length;
+      console.log(`[tradeController] closeAll: ${closed}/${openTrades.length} closed`);
+      res.json({ closed });
+    } catch (err) {
+      console.error("[tradeController] closeAll error:", err);
+      res.status(500).json({ error: "Failed to close all trades" });
+    }
+  },
+
   list: async (_: Request, res: Response) => {
     try {
       res.json({ trades: svc.list() });

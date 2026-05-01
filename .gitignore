@@ -42,3 +42,6 @@ yarn-error.log*
 # Project specific
 backend/.env
 frontend/.env.local
+
+# Build output
+release/

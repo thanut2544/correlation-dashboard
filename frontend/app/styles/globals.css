@@ -2,6 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
 body {
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-sans);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* Glow utilities */
+.glow-emerald { box-shadow: 0 0 20px rgba(52,211,153,0.15); }
+.glow-rose    { box-shadow: 0 0 20px rgba(251,113,133,0.15); }
+.glow-blue    { box-shadow: 0 0 20px rgba(96,165,250,0.12); }
+
+/* Animated pulse ring for active trade */
+@keyframes ping-slow {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
+.animate-ping-slow { animation: ping-slow 2s cubic-bezier(0,0,0.2,1) infinite; }
+
+/* Card glass */
+.card {
+  @apply bg-slate-900/80 border border-slate-800 rounded-xl backdrop-blur-sm;
+}
+.card-hover {
+  @apply transition-all duration-200 hover:border-slate-600 hover:bg-slate-800/80 hover:-translate-y-0.5;
 }

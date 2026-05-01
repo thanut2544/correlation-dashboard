@@ -10,27 +10,32 @@ import { closeRedisClient } from "./repositories/redisClient";
 
 async function main() {
   const stream = new StreamService();
-  const { app, priceSvc, corrSvc, stratSvc, tradeSvc, mt5Cmds } = createApp(stream);
+  const { app, priceSvc, corrSvc, stratSvc, tradeSvc, mt5Cmds, dailyRisk } = createApp(stream);
 
-  // Load persisted trades from Redis before serving any requests
   await tradeSvc.initialize();
 
   const server = http.createServer(app);
   const wss = initWebSocket(server, stream, config.wsPath);
 
-  const corrTimer: ReturnType<typeof setInterval> = startCorrelationJob(corrSvc, stream);
-  const stratTimer: ReturnType<typeof setInterval> = startStrategyJob(stratSvc, stream, tradeSvc);
+  const corrTimer = startCorrelationJob(corrSvc, stream);
 
   mt5Cmds.start();
 
   const feed = createPriceFeed();
   feed.start(priceSvc, stream);
 
+  // หน่วง 8 วินาทีเพื่อรอ EA ส่ง historical bars เข้า pipe ก่อน
+  // แล้วค่อย evaluate ครั้งแรก (ป้องกัน race condition)
+  const stratTimer = startStrategyJob(stratSvc, stream, tradeSvc, dailyRisk, 8_000);
+
   server.listen(config.port, () =>
-    console.log(`API on :${config.port}, WS ${config.wsPath}, Feed: ${config.priceFeed}`)
+    console.log(
+      `[server] API :${config.port} | WS ${config.wsPath} | Feed: ${config.priceFeed} | ` +
+      `Pocket Mode: ${config.isPocketMode} | Balance: $${config.accountBalance} | ` +
+      `Strategy interval: ${config.strategy.intervalMs / 60_000} min`
+    )
   );
 
-  // Graceful shutdown: flush state, close connections cleanly
   const shutdown = async (signal: string) => {
     console.log(`[server] ${signal} received — shutting down...`);
     clearInterval(corrTimer);
@@ -43,7 +48,6 @@ async function main() {
       console.log("[server] HTTP server closed.");
       process.exit(0);
     });
-    // Force exit if graceful close takes too long
     setTimeout(() => process.exit(1), 10_000).unref();
   };
 

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:4000/api/strategy)",
+      "Bash(curl -s -X POST http://localhost:4000/api/webhooks/mt-feed -H 'Content-Type: application/json' -d '{\"prices\":[{\"symbol\":\"EURUSD\",\"price\":1.08500},{\"symbol\":\"GBPUSD\",\"price\":1.26800},{\"symbol\":\"USDJPY\",\"price\":154.200},{\"symbol\":\"AUDUSD\",\"price\":0.64800},{\"symbol\":\"USDCHF\",\"price\":0.90500},{\"symbol\":\"NZDUSD\",\"price\":0.59200}]}')",
+      "Bash(npx tsc *)",
+      "Read(//c/c/Users/admin/Desktop/trader/correlation-dashboard/backend/**)",
+      "Bash(npx pkg *)",
+      "Bash(where npm *)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm run *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\admin\\Desktop\\trader\\correlation-dashboard\\frontend\\app\\trade\\[pair]"
+    ]
+  }
+}

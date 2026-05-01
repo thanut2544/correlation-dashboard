@@ -7,11 +7,15 @@ export type TradeIntent = {
   pair: [string, string];
   action: "open" | "close";
   direction?: "long-spread" | "short-spread";
+  volume?: number;
   entryPrices?: [number, number];
   exitPrices?: [number, number];
   finalPnL?: number;
   ts: number;
   status: "pending" | "filled" | "cancelled" | "closed";
+  mt5Status?: "pending" | "confirmed" | "failed";
+  mt5Retcode?: number;
+  mt5Comment?: string;
 };
 
 const REDIS_KEY = "trades:data";
@@ -57,27 +61,33 @@ export class TradeService {
     return symbol.includes("JPY") || symbol.includes("XAU") ? 100 : 10000;
   }
 
-  async open(pair: [string, string], direction: "long-spread" | "short-spread", entryPrices: [number, number]): Promise<TradeIntent> {
+  async open(
+    pair: [string, string],
+    direction: "long-spread" | "short-spread",
+    entryPrices: [number, number],
+    volume = 0.01
+  ): Promise<TradeIntent> {
     const trade: TradeIntent = {
       id: `T-${this.nextId++}`,
       pair,
       action: "open",
       direction,
+      volume,
       entryPrices,
       ts: Date.now(),
       status: "pending",
+      mt5Status: "pending",
     };
     this.trades.push(trade);
-    console.log(`[TradeService] OPEN ${trade.id}: ${pair[0]}/${pair[1]} ${direction}`);
+    console.log(`[TradeService] OPEN ${trade.id}: ${pair[0]}/${pair[1]} ${direction} vol=${volume}`);
 
     if (this.mt5Cmds) {
-      const vol = 0.01;
       if (direction === "long-spread") {
-        this.mt5Cmds.executeTrade("buy", pair[0], vol);
-        this.mt5Cmds.executeTrade("sell", pair[1], vol);
+        this.mt5Cmds.executeTrade("buy", pair[0], volume, trade.id);
+        this.mt5Cmds.executeTrade("sell", pair[1], volume, trade.id);
       } else {
-        this.mt5Cmds.executeTrade("sell", pair[0], vol);
-        this.mt5Cmds.executeTrade("buy", pair[1], vol);
+        this.mt5Cmds.executeTrade("sell", pair[0], volume, trade.id);
+        this.mt5Cmds.executeTrade("buy", pair[1], volume, trade.id);
       }
     }
 
@@ -99,13 +109,14 @@ export class TradeService {
         exitPrices,
         ts: Date.now(),
         status: "filled",
+        mt5Status: "pending",
       };
       this.trades.push(trade);
       console.log(`[TradeService] CLOSE ${trade.id}: ${pair[0]}/${pair[1]}`);
 
       if (this.mt5Cmds) {
-        this.mt5Cmds.executeTrade("close", pair[0]);
-        this.mt5Cmds.executeTrade("close", pair[1]);
+        this.mt5Cmds.executeTrade("close", pair[0], undefined, trade.id);
+        this.mt5Cmds.executeTrade("close", pair[1], undefined, trade.id);
       }
 
       const openTrades = this.trades.filter(
@@ -133,6 +144,23 @@ export class TradeService {
     } finally {
       this.closingPairs.delete(key);
     }
+  }
+
+  /** อัพเดต MT5 execution status จาก EA confirmation */
+  confirmMT5(tradeId: string, retcode: number, comment: string): void {
+    const trade = this.trades.find(t => t.id === tradeId);
+    if (!trade) {
+      console.warn(`[TradeService] confirmMT5: trade ${tradeId} not found`);
+      return;
+    }
+    trade.mt5Retcode = retcode;
+    trade.mt5Comment = comment;
+    // retcode 10009 = TRADE_RETCODE_DONE (MT5 success code)
+    trade.mt5Status = retcode === 10009 ? "confirmed" : "failed";
+    console.log(
+      `[TradeService] MT5 Confirm ${tradeId}: ${trade.mt5Status} (retcode=${retcode}, ${comment})`
+    );
+    this.persist();
   }
 
   list(): TradeIntent[] {
